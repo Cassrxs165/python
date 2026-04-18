@@ -1,0 +1,14 @@
+# config.yaml - Robocon GUI Settings
+gui:
+  title: "Robocon 2026 - PRO"
+
+camera:
+  device_path: "/dev/video0"  # Ganti webcam mudah!
+  fps: 30
+
+ros2:
+  topic: "/robot_cmd"         # Custom topic!
+  commands:
+    start: "START_AUTONOMOUS"
+    retry: "RECONNECT_CAMERA"
+    stop: "EMERGENCY_STOP"

@@ -4,13 +4,16 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 from PyQt5 import QtWidgets, QtGui, QtCore
+from config import config
 
 
 # ================= ROS2 NODE =================
 class ROSNode(Node):
-    def __init__(self):
-        super().__init__('gui_node')
-        self.publisher = self.create_publisher(String, 'robot_command', 10)
+    def __init__(self, config):  # TAMBAH config param
+        super().__init__(config['ros2']['node_name'])
+        self.publisher = self.create_publisher(String, 
+                                             config['ros2']['topic'], 
+                                             config['ros2']['qos_depth'])
 
     def send(self, text):
         msg = String()
@@ -25,13 +28,15 @@ class RobotGUI(QtWidgets.QMainWindow):
         super().__init__()
 
         # ===== ROS2 INIT =====
-        rclpy.init()
-        self.ros_node = ROSNode()
+        # ===== CONFIG + ROS2 INIT ===== (REPLACE 5 BARIS)
+        from config import config  # TAMBAH INI
 
-        # Timer untuk ROS spin (non-blocking)
+        rclpy.init()
+        self.ros_node = ROSNode(config.config)  # PASS CONFIG
+
         self.ros_timer = QtCore.QTimer()
         self.ros_timer.timeout.connect(self.spin_ros)
-        self.ros_timer.start(10)
+        self.ros_timer.start(config.config['ros2']['spin_interval_ms'])
 
         # ===== GUI SETUP (IDENTIK DENGAN SEBELUMNYA) =====
         self.setWindowTitle("Robocon 2026 - Vision Control")
@@ -46,9 +51,9 @@ class RobotGUI(QtWidgets.QMainWindow):
 
         # CAMERA (SAMA PERSIS)
         self.cap = cv2.VideoCapture(
-            "/dev/v4l/by-id/usb-046d_C922_Pro_Stream_Webcam_8E3AFE4F-video-index0",
-            cv2.CAP_V4L2
-        )
+        config.config['camera']['device_path'],  # DARI HARDCODE → CONFIG
+        cv2.CAP_V4L2
+)
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         self.timer = QtCore.QTimer()
@@ -246,6 +251,8 @@ class RobotGUI(QtWidgets.QMainWindow):
 
     # ===== ROS2 BUTTON ACTIONS =====
     def start_robot(self):
+        cmd = config.config['ros2']['commands']['start']  # TAMBAH INI
+        self.ros_node.send(cmd)
         self.status = "OTONOM"
         self.status_label.setText("🟢 STATUS: OTONOM")
         self.status_label.setStyleSheet("""
@@ -256,30 +263,31 @@ class RobotGUI(QtWidgets.QMainWindow):
             font-size: 18px;
             font-weight: 700;
         """)
-        self.ros_node.send("start")  # 🔥 ROS2 SEND
 
     def retry_connection(self):
+        cmd = config.config['ros2']['commands']['retry']
+        self.ros_node.send(cmd)
         self.cap.release()
         QtCore.QTimer.singleShot(500, self.reconnect_camera)
-        self.ros_node.send("retry")  # 🔥 ROS2 SEND
 
     def reconnect_camera(self):
-        self.cap.open("/dev/v4l/by-id/usb-046d_C922_Pro_Stream_Webcam_8E3AFE4F-video-index0",
-                     cv2.CAP_V4L2)
+        self.cap.open(config.config['camera']['device_path'],  # ← GUNAKAN CONFIG!
+                 cv2.CAP_V4L2)
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-    def stop_robot(self):
-        self.status = "STOPPED"
-        self.status_label.setText("🔴 STATUS: STOPPED")
-        self.status_label.setStyleSheet("""
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                stop:0 #ef4444, stop:1 #dc2626);
-            border-radius: 12px;
-            padding: 16px;
-            font-size: 18px;
-            font-weight: 700;
-        """)
-        self.ros_node.send("stop")  # 🔥 ROS2 SEND
+def stop_robot(self):
+    cmd = config.config['ros2']['commands']['stop']  # ← TAMBAH INI
+    self.ros_node.send(cmd)                          # ← GANTI "stop" → cmd
+    self.status = "STOPPED"
+    self.status_label.setText("🔴 STATUS: STOPPED")
+    self.status_label.setStyleSheet("""
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+            stop:0 #ef4444, stop:1 #dc2626);
+        border-radius: 12px;
+        padding: 16px;
+        font-size: 18px;
+        font-weight: 700;
+    """)
 
     # ===== CLOSE (ROS2 SHUTDOWN) =====
     def closeEvent(self, event):
