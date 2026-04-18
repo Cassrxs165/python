@@ -1,28 +1,60 @@
 import sys
 import cv2
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
 from PyQt5 import QtWidgets, QtGui, QtCore
+from python_publiser.config import config
 
+
+# ================= ROS2 NODE ==================
+class ROSNode(Node):
+    def __init__(self, config):  # TAMBAH config param
+        super().__init__(config['ros2']['node_name'])
+        self.publisher = self.create_publisher(String, 
+                                             config['ros2']['topic'], 
+                                             config['ros2']['qos_depth'])
+
+    def send(self, text):
+        msg = String()
+        msg.data = text
+        self.publisher.publish(msg)
+        self.get_logger().info(f'GUI → ROS2: {text}')
+
+
+# ================= GUI =================
 class RobotGUI(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
 
+        # ===== ROS2 INIT =====
+        # ===== CONFIG + ROS2 INIT ===== (REPLACE 5 BARIS)
+        from python_publiser.config import config  # TAMBAH INI
+
+        rclpy.init()
+        self.ros_node = ROSNode(config.config)  # PASS CONFIG
+
+        self.ros_timer = QtCore.QTimer()
+        self.ros_timer.timeout.connect(self.spin_ros)
+        self.ros_timer.start(config.config['ros2']['spin_interval_ms'])
+
+        # ===== GUI SETUP (IDENTIK DENGAN SEBELUMNYA) =====
         self.setWindowTitle("Robocon 2026 - Vision Control")
         self.setGeometry(100, 100, 1400, 800)
         self.setMinimumSize(1200, 700)
 
-        # CENTRAL WIDGET BIAR FULLSCREEN STABIL
         central_widget = QtWidgets.QWidget()
         self.setCentralWidget(central_widget)
 
-        # MODERN CYBERPUNK THEME - KONSISTEN BIRU/ABU/MERAH/HIJAU
+        # CYBERPUNK THEME (100% SAMA)
         self.setStyleSheet(self.get_global_styles())
 
-        # CAMERA INIT
+        # CAMERA (SAMA PERSIS)
         self.cap = cv2.VideoCapture(
-            "/dev/v4l/by-id/usb-046d_C922_Pro_Stream_Webcam_8E3AFE4F-video-index0",
-            cv2.CAP_V4L2
-        )
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # NO LAG
+        config.config['camera']['device_path'],  # DARI HARDCODE → CONFIG
+        cv2.CAP_V4L2
+)
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_frame)
@@ -69,17 +101,23 @@ class RobotGUI(QtWidgets.QMainWindow):
         }
         """
 
+    # ===== ROS2 SPIN (BARU) =====
+    def spin_ros(self):
+        """Non-blocking ROS2 spin"""
+        rclpy.spin_once(self.ros_node, timeout_sec=0)
+
+    # ===== UI (100% IDENTIK) =====
     def setup_ui(self, central_widget):
         main_layout = QtWidgets.QHBoxLayout()
         main_layout.setContentsMargins(24, 24, 24, 24)
         main_layout.setSpacing(24)
         central_widget.setLayout(main_layout)
 
-        # LEFT PANEL - VIDEO (70% width, FIXED ASPECT RATIO)
+        # LEFT PANEL - VIDEO
         left_panel = self.create_video_panel()
         main_layout.addWidget(left_panel, 7)
 
-        # RIGHT PANEL - CONTROLS (30% width)
+        # RIGHT PANEL - CONTROLS
         right_panel = self.create_control_panel()
         main_layout.addWidget(right_panel, 3)
 
@@ -105,7 +143,7 @@ class RobotGUI(QtWidgets.QMainWindow):
         header.setAlignment(QtCore.Qt.AlignCenter)
         layout.addWidget(header)
 
-        # VIDEO LABEL - FIXED 16:9 ASPECT RATIO
+        # VIDEO LABEL
         self.video_label = QtWidgets.QLabel("🔌 MENUNGGU KAMERA...")
         self.video_label.setAlignment(QtCore.Qt.AlignCenter)
         self.video_label.setMinimumHeight(300)
@@ -117,13 +155,11 @@ class RobotGUI(QtWidgets.QMainWindow):
             font-size: 18px;
         """)
         
-        # ASPECT RATIO WIDGET BIAR FULLSCREEN STABIL
         video_container = QtWidgets.QWidget()
         video_layout = QtWidgets.QVBoxLayout()
         video_layout.setContentsMargins(0, 0, 0, 0)
         video_container.setLayout(video_layout)
         video_layout.addWidget(self.video_label, 1)
-        
         layout.addWidget(video_container, 1)
 
         # TARGET STATUS
@@ -161,7 +197,7 @@ class RobotGUI(QtWidgets.QMainWindow):
         """)
         layout.addWidget(self.status_label)
 
-        # CONTROL BUTTONS
+        # CONTROL BUTTONS (ROS2 INTEGRATED)
         self.btn_start = QtWidgets.QPushButton("▶️ START OTONOM")
         self.btn_start.clicked.connect(self.start_robot)
         layout.addWidget(self.btn_start)
@@ -174,11 +210,10 @@ class RobotGUI(QtWidgets.QMainWindow):
         self.btn_stop.clicked.connect(self.stop_robot)
         layout.addWidget(self.btn_stop)
 
-        # SPACER
         layout.addStretch()
 
-        # INFO PANEL
-        info_label = QtWidgets.QLabel("📱 Robocon 2026\nVision Control v1.0")
+        # INFO PANEL (TAMBAH ROS2 STATUS)
+        info_label = QtWidgets.QLabel("🤖 Robocon 2026\nROS2 Vision Control v2.0")
         info_label.setAlignment(QtCore.Qt.AlignCenter)
         info_label.setStyleSheet("""
             background: rgba(59, 130, 246, 0.1);
@@ -192,20 +227,18 @@ class RobotGUI(QtWidgets.QMainWindow):
 
         return panel
 
+    # ===== CAMERA (SAMA PERSIS) =====
     def update_frame(self):
         ret, frame = self.cap.read()
         if ret:
-            # FLIP & RESIZE OPTIMIZED
-            frame = cv2.flip(frame, 1)  # mirror
+            frame = cv2.flip(frame, 1)
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            
             h, w = frame.shape[:2]
             bytes_per_line = 3 * w
 
             qt_image = QtGui.QImage(frame.data, w, h, bytes_per_line, 
                                   QtGui.QImage.Format_RGB888)
             
-            # PERFECT SCALING - NO STRETCH!
             pixmap = QtGui.QPixmap.fromImage(qt_image)
             scaled_pixmap = pixmap.scaled(
                 self.video_label.size(),
@@ -216,7 +249,10 @@ class RobotGUI(QtWidgets.QMainWindow):
         else:
             self.video_label.setText("🔌 KAMERA TERPUTUS")
 
+    # ===== ROS2 BUTTON ACTIONS =====
     def start_robot(self):
+        cmd = config.config['ros2']['commands']['start']  # TAMBAH INI
+        self.ros_node.send(cmd)
         self.status = "OTONOM"
         self.status_label.setText("🟢 STATUS: OTONOM")
         self.status_label.setStyleSheet("""
@@ -229,34 +265,41 @@ class RobotGUI(QtWidgets.QMainWindow):
         """)
 
     def retry_connection(self):
+        cmd = config.config['ros2']['commands']['retry']
+        self.ros_node.send(cmd)
         self.cap.release()
         QtCore.QTimer.singleShot(500, self.reconnect_camera)
 
     def reconnect_camera(self):
-        self.cap.open("/dev/v4l/by-id/usb-046d_C922_Pro_Stream_Webcam_8E3AFE4F-video-index0",
-                     cv2.CAP_V4L2)
+        self.cap.open(config.config['camera']['device_path'],  # ← GUNAKAN CONFIG!
+                 cv2.CAP_V4L2)
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-    def stop_robot(self):
-        self.status = "STOPPED"
-        self.status_label.setText("🔴 STATUS: STOPPED")
-        self.status_label.setStyleSheet("""
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                stop:0 #ef4444, stop:1 #dc2626);
-            border-radius: 12px;
-            padding: 16px;
-            font-size: 18px;
-            font-weight: 700;
-        """)
+def stop_robot(self):
+    cmd = config.config['ros2']['commands']['stop']  # ← TAMBAH INI
+    self.ros_node.send(cmd)                          # ← GANTI "stop" → cmd
+    self.status = "STOPPED"
+    self.status_label.setText("🔴 STATUS: STOPPED")
+    self.status_label.setStyleSheet("""
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+            stop:0 #ef4444, stop:1 #dc2626);
+        border-radius: 12px;
+        padding: 16px;
+        font-size: 18px;
+        font-weight: 700;
+    """)
 
+    # ===== CLOSE (ROS2 SHUTDOWN) =====
     def closeEvent(self, event):
         self.timer.stop()
+        self.ros_timer.stop()  # STOP ROS TIMER
         self.cap.release()
         cv2.destroyAllWindows()
+        rclpy.shutdown()  # 🔥 ROS2 CLEANUP
         event.accept()
 
+    # ===== FULLSCREEN STABIL (SAMA PERSIS) =====
     def resizeEvent(self, event):
-        """FULLSCREEN STABIL - AUTO RESIZE VIDEO"""
         super().resizeEvent(event)
         if hasattr(self, 'video_label') and self.video_label.pixmap():
             pixmap = self.video_label.pixmap()
@@ -271,7 +314,7 @@ class RobotGUI(QtWidgets.QMainWindow):
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
-    app.setStyle('Fusion')  # MODERN LOOK
+    app.setStyle('Fusion')
     
     window = RobotGUI()
     window.showMaximized()
